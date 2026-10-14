@@ -40,6 +40,30 @@ Esse modulo centraliza:
 - Persistencia de ID: Inc/probe_id_storage.h + Src/probe_id_storage.c
 - Sensor SHT30: Inc/sht30.h + Src/sht30.c
 
+## Mapeamento de pinos
+
+### RS485 (USART1)
+- PA8: DE/DTR do transceiver RS485 (controle de direcao)
+- PA9: TX USART1
+- PA10: RX USART1
+
+### I2C1 (SHT30)
+- PB6: SCL
+- PB7: SDA
+
+### LED de status
+- PC13: LED onboard (ativo em nivel baixo)
+
+### Debug
+- PA13: SWDIO
+- PA14: SWCLK
+
+## Observacoes eletricas
+
+- O firmware usa SWD (JTAG desabilitado) para liberar pinos e manter depuracao.
+- O LED em PC13 e ligado com nivel logico 0 e desligado com nivel logico 1.
+- O pino PA8 e usado como DE para RS485: transmissao quando alto, recepcao quando baixo.
+
 ## Comportamento funcional
 
 ### Instalacao
