@@ -34,10 +34,8 @@ typedef struct
     /* 0xFF = desinstalada, 1..4 = instalada. */
     uint8_t installed_id;
 
-    /* Snapshot de dados enviados nas respostas de leitura. */
-    float temperature_c;
-    float humidity_rh;
-    float soil_humidity;
+    probe_type_t probe_type;
+    probe_measurements_t measurements;
 
     /* Buffer de recepcao incremental de frame. */
     uint8_t rx_buf[PROBE_FRAME_MAX_SIZE];
@@ -289,28 +287,57 @@ static void send_install_ack(uint32_t now_ms)
     }
 }
 
-/* Resposta de telemetria com T/U/S no formato x10 little-endian. */
+static uint8_t encode_measurement_payload(uint8_t *payload, size_t payload_capacity)
+{
+    uint16_t values[4];
+    size_t index;
+
+    if ((payload == 0) || (payload_capacity < 8U))
+    {
+        return 0U;
+    }
+
+    switch (s_ctx.probe_type)
+    {
+        case PROBE_TYPE_AIR_SOIL_TH:
+            values[0] = (uint16_t)to_x10(s_ctx.measurements.air_temperature_c);
+            values[1] = to_u16_x10(s_ctx.measurements.air_humidity_rh);
+            values[2] = (uint16_t)to_x10(s_ctx.measurements.soil_temperature_c);
+            values[3] = to_u16_x10(s_ctx.measurements.soil_humidity_rh);
+            break;
+
+        case PROBE_TYPE_UNKNOWN:
+        default:
+            return 0U;
+    }
+
+    for (index = 0U; index < 4U; index++)
+    {
+        payload[index * 2U] = (uint8_t)(values[index] & 0xFFU);
+        payload[(index * 2U) + 1U] = (uint8_t)(values[index] >> 8U);
+    }
+
+    return 8U;
+}
+
+/* Resposta de telemetria do perfil ar/solo em x10 little-endian. */
 static void send_read_response(uint32_t now_ms)
 {
-    uint8_t tx[15];
-    uint8_t payload[6];
-    int16_t t = to_x10(s_ctx.temperature_c);
-    uint16_t u = to_u16_x10(s_ctx.humidity_rh);
-    uint16_t s = to_u16_x10(s_ctx.soil_humidity);
+    uint8_t tx[17];
+    uint8_t payload[8];
+    uint8_t payload_len = encode_measurement_payload(payload, sizeof(payload));
     size_t len;
 
-    payload[0] = (uint8_t)(t & 0xFF);
-    payload[1] = (uint8_t)((t >> 8) & 0xFF);
-    payload[2] = (uint8_t)(u & 0xFF);
-    payload[3] = (uint8_t)((u >> 8) & 0xFF);
-    payload[4] = (uint8_t)(s & 0xFF);
-    payload[5] = (uint8_t)((s >> 8) & 0xFF);
+    if (payload_len == 0U)
+    {
+        return;
+    }
 
     len = build_frame(PROBE_READ_REGISTER,
                       s_ctx.installed_id,
                       0x00U,
                       payload,
-                      6U,
+                      payload_len,
                       tx,
                       sizeof(tx));
     if (len > 0U)
@@ -355,9 +382,11 @@ void probe_protocol_init(void)
 {
     /* Recupera estado persistido apos reboot/power cycle. */
     s_ctx.installed_id = probe_id_storage_read();
-    s_ctx.temperature_c = 0.0f;
-    s_ctx.humidity_rh = 0.0f;
-    s_ctx.soil_humidity = 0.0f;
+    s_ctx.probe_type = PROBE_TYPE_AIR_SOIL_TH;
+    s_ctx.measurements.air_temperature_c = 0.0f;
+    s_ctx.measurements.air_humidity_rh = 0.0f;
+    s_ctx.measurements.soil_temperature_c = 0.0f;
+    s_ctx.measurements.soil_humidity_rh = 0.0f;
     s_ctx.rx_len = 0U;
     s_ctx.rx_expected_len = 0U;
     s_ctx.led_blink_steps_remaining = 0U;
@@ -373,12 +402,16 @@ void probe_protocol_init(void)
     }
 }
 
-void probe_protocol_set_measurements(float temperature_c, float humidity_rh, float soil_humidity)
+void probe_protocol_set_measurements(probe_type_t probe_type,
+                                     const probe_measurements_t *measurements)
 {
-    /* Atualizacao atomica simples do snapshot de telemetria. */
-    s_ctx.temperature_c = temperature_c;
-    s_ctx.humidity_rh = humidity_rh;
-    s_ctx.soil_humidity = soil_humidity;
+    if ((measurements == 0) || (probe_type != PROBE_TYPE_AIR_SOIL_TH))
+    {
+        return;
+    }
+
+    s_ctx.probe_type = probe_type;
+    s_ctx.measurements = *measurements;
 }
 
 void probe_protocol_process(uint32_t now_ms)

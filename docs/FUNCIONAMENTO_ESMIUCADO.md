@@ -113,10 +113,26 @@ Entrada:
 Validacao:
 - so responde se estiver instalada e o id bater com o persistido
 
-Payload de resposta (6 bytes):
-- temperatura x10 (int16 little-endian)
+Payload de resposta (8 bytes no perfil atual):
+- temperatura do ar x10 (int16 little-endian)
 - umidade do ar x10 (uint16 little-endian)
+- temperatura do solo x10 (int16 little-endian)
 - umidade do solo x10 (uint16 little-endian)
+
+No perfil atual, `PROBE_TYPE_AIR_SOIL_TH`, o payload possui 8 bytes e os quatro
+campos seguem nessa ordem. Valores assinados sao usados para temperaturas;
+umidades sao sem sinal. Todos os valores usam fator de escala 10.
+
+O tipo da sonda e representado por `probe_type_t` no firmware e deve ser
+conhecido pelo mestre/modelo que interpreta a resposta. O campo `reserved` do
+frame permanece em zero para manter compatibilidade; ele nao transporta o tipo.
+Para adicionar um perfil, declare um novo valor de tipo, defina seu layout e
+adicione um caso em `encode_measurement_payload()`. Atualize tambem o mestre e
+este documento para que o decoder interprete o payload pelo perfil correto.
+
+Os canais de solo ainda sao placeholders neste hardware: a aplicacao envia
+0.0 ate serem conectados sensores reais. Isso nao deve ser interpretado como
+uma medicao validada do solo.
 
 ## 5. Parser incremental da UART
 
@@ -206,18 +222,25 @@ Uso:
 
 ## 11. Pontos de extensao
 
-1. Umidade do solo real
-- substituir placeholder por leitura de sensor fisico
-- manter formato x10 no payload
+1. Medicoes reais do solo
+- integrar sensores de temperatura e umidade do solo
+- alimentar os dois campos de solo do snapshot
+- manter o perfil e escala x10 acordados com o mestre
 
-2. Controle de erro mais detalhado
+2. Novos tipos de sonda
+- adicionar o tipo ao `probe_type_t`
+- definir o layout e encoder do payload daquele tipo
+- configurar o mestre para selecionar o decoder pelo tipo da sonda
+- manter framing, CRC e registradores comuns sempre que possivel
+
+3. Controle de erro mais detalhado
 - counters de CRC invalido
 - counters de timeout e frames truncados
 
-3. Parametrizacao de pinos
+4. Parametrizacao de pinos
 - mover pinos para tabela de configuracao central
 
-4. Seguranca de escrita em flash
+5. Seguranca de escrita em flash
 - adicionar verificacao pos-gravacao
 - implementar politica de wear leveling se necessaria
 

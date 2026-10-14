@@ -3,8 +3,9 @@
 Firmware da sonda de campo para rede RS485, com:
 - instalacao e desinstalacao por protocolo
 - retencao de ID (1..4) em flash
+- telemetria tipada de temperatura/umidade do ar e do solo
 - leitura de temperatura e umidade do ar via SHT30
-- campo de umidade do solo reservado (placeholder)
+- canais de solo reservados como placeholder ate integrar seus sensores
 - LED de status em PC13
 
 ## Objetivo
@@ -82,9 +83,15 @@ Esse modulo centraliza:
 
 - Recebe comando de leitura (registro 0x20) com seu ID.
 - Responde com payload:
-  - temperatura do ar (x10)
-  - umidade do ar (x10)
-  - umidade do solo (x10, placeholder atual)
+  - temperatura do ar (int16 x10, little-endian)
+  - umidade do ar (uint16 x10, little-endian)
+  - temperatura do solo (int16 x10, little-endian, placeholder atual)
+  - umidade do solo (uint16 x10, little-endian, placeholder atual)
+
+O firmware identifica o perfil `PROBE_TYPE_AIR_SOIL_TH` no modelo interno.
+Novos perfis devem adicionar um tipo e um encoder de payload correspondente em
+`probe_protocol.c`; o mestre e o firmware precisam compartilhar o mesmo mapa
+de campos. A moldura RS485 permanece a mesma e os payloads podem variar por perfil.
 
 ### LED PC13
 

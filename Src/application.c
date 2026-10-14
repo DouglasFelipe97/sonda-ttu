@@ -18,9 +18,7 @@ static void update_measurements_if_due(uint32_t now_ms)
      * expor dados globais para outros modulos.
      */
     static uint32_t last_sample_ms = 0U;
-    static float last_temperature_c = 0.0f;
-    static float last_humidity_rh = 0.0f;
-    static float last_soil_humidity = 0.0f;
+    static probe_measurements_t measurements = {0.0f, 0.0f, 0.0f, 0.0f};
 
     /* Taxa de amostragem: 1 leitura por segundo. */
     if ((now_ms - last_sample_ms) < 1000U)
@@ -29,19 +27,20 @@ static void update_measurements_if_due(uint32_t now_ms)
          * Mesmo sem nova leitura, reenviamos o ultimo snapshot para garantir
          * que o protocolo sempre tenha um conjunto consistente de dados.
          */
-        probe_protocol_set_measurements(last_temperature_c, last_humidity_rh, last_soil_humidity);
+        probe_protocol_set_measurements(PROBE_TYPE_AIR_SOIL_TH, &measurements);
         return;
     }
 
     last_sample_ms = now_ms;
 
     /*
-     * Lemos temperatura e umidade do ar do SHT30.
-     * Umidade do solo fica como placeholder por enquanto.
+     * Lemos temperatura e umidade do ar do SHT30. Os canais de solo
+     * permanecem zerados ate a integracao dos sensores correspondentes.
      */
-    if (sht30_read_temperature_humidity(&last_temperature_c, &last_humidity_rh))
+    if (sht30_read_temperature_humidity(&measurements.air_temperature_c,
+                                        &measurements.air_humidity_rh))
     {
-        probe_protocol_set_measurements(last_temperature_c, last_humidity_rh, last_soil_humidity);
+        probe_protocol_set_measurements(PROBE_TYPE_AIR_SOIL_TH, &measurements);
     }
 }
 
