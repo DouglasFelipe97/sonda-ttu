@@ -21,6 +21,7 @@
 #define DMA1_Channel5_BASE     (DMA1_BASE + 0x00000058UL)
 
 #define NVIC_ISER0             (*(volatile uint32_t *)0xE000E100UL)
+#define NVIC_ISER1             (*(volatile uint32_t *)0xE000E104UL)
 
 typedef struct
 {
@@ -168,10 +169,15 @@ typedef struct
 #define AFIO_MAPR_SWJ_CFG_MASK (0x7UL << 24)
 #define AFIO_MAPR_SWJ_CFG_SWD  (0x2UL << 24)
 
+#define USART_SR_PE          (1UL << 0)
+#define USART_SR_FE          (1UL << 1)
+#define USART_SR_NE          (1UL << 2)
+#define USART_SR_ORE         (1UL << 3)
 #define USART_SR_RXNE        (1UL << 5)
 #define USART_SR_TC          (1UL << 6)
 #define USART_SR_TXE         (1UL << 7)
 #define USART_CR1_UE         (1UL << 13)
+#define USART_CR1_RXNEIE     (1UL << 5)
 #define USART_CR1_TE         (1UL << 3)
 #define USART_CR1_RE         (1UL << 2)
 

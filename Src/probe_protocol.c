@@ -25,6 +25,7 @@
 #define PROBE_READ_REGISTER         0x20U
 #define PROBE_PROTO_FIXED_FIELDS    3U
 #define PROBE_FRAME_MAX_SIZE        32U
+#define PROBE_RX_FRAME_TIMEOUT_MS   30U
 
 #define PROBE_DISCOVERY_ID          0xFFU
 #define PROBE_ID_MIN                1U
@@ -47,6 +48,7 @@ typedef struct
     uint8_t rx_buf[PROBE_FRAME_MAX_SIZE];
     uint8_t rx_len;
     uint8_t rx_expected_len;
+    uint32_t rx_last_byte_ms;
 
     /* Controle de animacao de LED por evento de comunicacao. */
     uint8_t led_blink_steps_remaining;
@@ -275,26 +277,8 @@ static void send_discovery_response(uint32_t now_ms)
     }
 }
 
-/* ACK de atribuicao de ID durante instalacao. */
-static void send_install_ack(uint32_t now_ms)
-{
-    uint8_t tx[9];
-    size_t len = build_frame(PROBE_INSTALL_REGISTER,
-                             s_ctx.installed_id,
-                             0x00U,
-                             0,
-                             0U,
-                             tx,
-                             sizeof(tx));
-    if (len > 0U)
-    {
-        peripherals_rs485_send(tx, len);
-        trigger_comm_led_feedback(now_ms);
-    }
-}
-
 /* Resposta de telemetria com T/U/S no formato x10 little-endian. */
-static void send_read_response(uint32_t now_ms)
+static void send_measurement_response(uint8_t reg, uint32_t now_ms)
 {
     uint8_t tx[15];
     uint8_t payload[6];
@@ -310,7 +294,7 @@ static void send_read_response(uint32_t now_ms)
     payload[4] = (uint8_t)(s & 0xFF);
     payload[5] = (uint8_t)((s >> 8) & 0xFF);
 
-    len = build_frame(PROBE_READ_REGISTER,
+    len = build_frame(reg,
                       s_ctx.installed_id,
                       0x00U,
                       payload,
@@ -343,11 +327,18 @@ static void handle_command(uint8_t reg, uint8_t received_id, uint32_t now_ms)
     if ((reg == PROBE_INSTALL_REGISTER) &&
         (received_id >= PROBE_ID_MIN) &&
         (received_id <= PROBE_ID_MAX) &&
-        (s_ctx.installed_id == PROBE_DISCOVERY_ID))
+        ((s_ctx.installed_id == PROBE_DISCOVERY_ID) ||
+         (s_ctx.installed_id == received_id)))
     {
-        s_ctx.installed_id = received_id;
-        probe_id_storage_write(received_id);
-        send_install_ack(now_ms);
+        if (s_ctx.installed_id == PROBE_DISCOVERY_ID)
+        {
+            if (!probe_id_storage_write(received_id))
+            {
+                return;
+            }
+            s_ctx.installed_id = received_id;
+        }
+        send_measurement_response(PROBE_INSTALL_REGISTER, now_ms);
         return;
     }
 
@@ -372,6 +363,7 @@ void probe_protocol_init(void)
     s_ctx.soil_humidity = 0.0f;
     s_ctx.rx_len = 0U;
     s_ctx.rx_expected_len = 0U;
+    s_ctx.rx_last_byte_ms = 0U;
     s_ctx.led_blink_steps_remaining = 0U;
     s_ctx.led_step_started_ms = 0U;
 
@@ -397,12 +389,20 @@ void probe_protocol_process(uint32_t now_ms)
 {
     uint8_t byte;
 
+    if ((s_ctx.rx_len > 0U) &&
+        ((now_ms - s_ctx.rx_last_byte_ms) >= PROBE_RX_FRAME_TIMEOUT_MS))
+    {
+        s_ctx.rx_len = 0U;
+        s_ctx.rx_expected_len = 0U;
+    }
+
     /*
      * Parser incremental nao bloqueante:
      * consome todos os bytes atualmente disponiveis no UART.
      */
     while (peripherals_rs485_read_byte(&byte))
     {
+        s_ctx.rx_last_byte_ms = now_ms;
         /* Sincroniza inicio de frame no delimitador 0x55. */
         if ((s_ctx.rx_len == 0U) && (byte != PROBE_FRAME_DELIMITER))
         {
@@ -463,7 +463,7 @@ void probe_protocol_process(uint32_t now_ms)
                      (id == s_ctx.installed_id))
             {
                 /* Apenas sonda instalada responde leitura enderecada ao proprio ID. */
-                send_read_response(now_ms);
+                send_measurement_response(PROBE_READ_REGISTER, now_ms);
             }
         }
     }

@@ -66,6 +66,10 @@ Esse modulo centraliza:
 - O firmware usa SWD (JTAG desabilitado) para liberar pinos e manter depuracao.
 - O LED em PC13 e ligado com nivel logico 0 e desligado com nivel logico 1.
 - O pino PA8 e usado como DE para RS485: transmissao quando alto, recepcao quando baixo.
+- DE e /RE devem estar ligados juntos a PA8. A resposta aguarda 2 ticks de 1 ms
+  antes de habilitar TX, e PA8 permanece alto ate USART1 indicar TC.
+- A recepcao USART1 usa interrupcao e buffer circular de 128 bytes (127 uteis)
+  para preservar comandos durante a conversao bloqueante do SHT30.
 
 ## Comportamento funcional
 
@@ -74,6 +78,8 @@ Esse modulo centraliza:
 - Recebe comando de instalacao (registro 0x10) com ID 1..4.
 - Persiste o ID em flash.
 - Passa a responder leituras para esse ID.
+- Repetir o mesmo ID reenvia ACK sem nova gravacao; outro ID e ignorado.
+- O ACK inclui o mesmo payload de 6 bytes da leitura para a tela de instalacao.
 
 ### Desinstalacao
 
@@ -108,7 +114,7 @@ Formato base:
 - byte final: 0x55
 
 Registradores:
-- 0x10: atribuicao de ID (somente sondas virgens aceitam)
+- 0x10: atribuicao de ID (virgem instala; instalada confirma somente o mesmo ID)
 - 0x11: descoberta broadcast (somente sondas virgens respondem; nao altera estado)
 - 0x12: desinstalacao enderecada (ID 1..4)
 - 0x20: leitura
@@ -136,3 +142,20 @@ Arquivos principais de build:
 - Endereco de flash para ID foi definido na ultima pagina do STM32F103C8 (0x0800FC00).
 - Umidade do solo permanece como placeholder ate integracao do sensor fisico.
 - O parser de frame e nao bloqueante, com recepcao incremental byte a byte.
+- Um frame incompleto e descartado apos 30 ms sem progresso do parser.
+
+## Testes Host
+
+Na raiz de `sonda-ttu`, em Linux com compilador C:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -I Inc tests/test_probe_protocol.c -o /tmp/test-probe-protocol
+/tmp/test-probe-protocol
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -I Inc tests/test_rs485_uart.c -o /tmp/test-rs485-uart
+/tmp/test-rs485-uart
+```
+
+Os testes usam o codigo real com UART/persistencia ou registradores simulados.
+Cobrem ACK repetido apos perda/reboot, telemetria na instalacao e leitura,
+enderecamento, timeout de frame, recepcao por IRQ, erros/overflow e retorno de
+DE a RX somente depois de TC. Nao substituem build ARM nem teste no transceiver.

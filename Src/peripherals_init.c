@@ -9,6 +9,8 @@
 
 /* PA8 controla o pino DE/RE do transceiver RS485 (direcao do barramento). */
 #define RS485_DE_PIN 8U
+#define RS485_RX_BUFFER_SIZE 128U
+#define RS485_TURNAROUND_MS  2U
 
 /* Timeout simples por polling para operacoes I2C. */
 #define I2C_TIMEOUT  100000UL
@@ -18,6 +20,9 @@ volatile uint32_t SystemCoreClock = 64000000UL;
 
 /* Tick de tempo em milissegundos incrementado na interrupcao do TIM2. */
 static volatile uint32_t s_ms_tick = 0UL;
+static volatile uint8_t s_rs485_rx_buffer[RS485_RX_BUFFER_SIZE];
+static volatile uint32_t s_rs485_rx_head;
+static volatile uint32_t s_rs485_rx_tail;
 
 /* Mantem somente SWD ativo para debug, liberando pinos de JTAG. */
 static void configure_debug_serial_wire(void)
@@ -116,7 +121,10 @@ static void configure_rs485_uart_9600(void)
 
     /* BRR para 9600 bps com clock de 64 MHz. */
     USART1->BRR = 0x1A0BU;
-    USART1->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+    s_rs485_rx_head = 0U;
+    s_rs485_rx_tail = 0U;
+    USART1->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
+    NVIC_ISER1 = (1UL << (37U - 32U));
 }
 
 /* Aguarda flag ligar com timeout para evitar travamentos permanentes. */
@@ -199,6 +207,25 @@ void TIM2_IRQHandler(void)
     {
         TIM2->SR &= ~TIM_SR_UIF;
         s_ms_tick++;
+    }
+}
+
+void USART1_IRQHandler(void)
+{
+    uint32_t status = USART1->SR;
+    uint32_t errors = USART_SR_PE | USART_SR_FE | USART_SR_NE | USART_SR_ORE;
+
+    if ((status & (USART_SR_RXNE | errors)) != 0U)
+    {
+        uint8_t byte = (uint8_t)USART1->DR;
+        uint32_t next_head = (s_rs485_rx_head + 1U) % RS485_RX_BUFFER_SIZE;
+
+        if (((status & USART_SR_RXNE) != 0U) && ((status & errors) == 0U) &&
+            (next_head != s_rs485_rx_tail))
+        {
+            s_rs485_rx_buffer[s_rs485_rx_head] = byte;
+            s_rs485_rx_head = next_head;
+        }
     }
 }
 
@@ -359,6 +386,11 @@ void peripherals_rs485_send(const uint8_t *data, size_t len)
         return;
     }
 
+    uint32_t started_ms = peripherals_get_tick_ms();
+    while ((peripherals_get_tick_ms() - started_ms) < RS485_TURNAROUND_MS)
+    {
+    }
+
     /*
      * Em RS485 half-duplex, primeiro tomamos o barramento (DE=1),
      * transmitimos todos os bytes e so depois voltamos para recepcao.
@@ -389,11 +421,12 @@ bool peripherals_rs485_read_byte(uint8_t *out_byte)
     }
 
     /* RX nao bloqueante: retorna false quando nao ha byte disponivel. */
-    if ((USART1->SR & USART_SR_RXNE) == 0U)
+    if (s_rs485_rx_head == s_rs485_rx_tail)
     {
         return false;
     }
 
-    *out_byte = (uint8_t)USART1->DR;
+    *out_byte = s_rs485_rx_buffer[s_rs485_rx_tail];
+    s_rs485_rx_tail = (s_rs485_rx_tail + 1U) % RS485_RX_BUFFER_SIZE;
     return true;
 }
