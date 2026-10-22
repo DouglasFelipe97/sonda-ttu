@@ -80,29 +80,33 @@ CRC:
 - janela: de version ate ultimo byte de payload/reserved
 
 ### 4.2 Registradores suportados
-- 0x10: instalacao/desinstalacao
+- 0x10: atribuicao de ID (somente sonda virgem)
+- 0x11: descoberta broadcast (somente sonda virgem responde)
+- 0x12: desinstalacao enderecada pelo ID
 - 0x20: leitura de telemetria
 
 ### 4.3 Fluxo de instalacao
 
 Entrada:
-- frame reg=0x10, id=1..4
+- frame reg=0x11, id=0xFF para descoberta
+- frame reg=0x10, id=1..4 para atribuicao
 
 Acao:
-1. grava novo ID em flash
-2. muda estado interno para instalado
-3. envia ACK de instalacao
-4. dispara feedback visual (2 piscadas)
+1. a sonda virgem responde a descoberta sem alterar seu estado
+2. ao receber atribuicao, grava o novo ID em flash
+3. muda estado interno para instalado
+4. envia ACK de instalacao
+5. dispara feedback visual (2 piscadas)
 
 ### 4.4 Fluxo de desinstalacao
 
 Entrada:
-- frame reg=0x10, id=0xFF
+- frame reg=0x12, id=ID_da_sonda
 
 Acao:
-1. grava estado desinstalado na flash
-2. liga LED fixo
-3. envia resposta de discovery/desinstalado
+1. ignora o comando se o ID nao corresponder ao ID persistido
+2. grava estado desinstalado na flash
+3. liga LED fixo
 4. permanece aguardando nova instalacao
 
 ### 4.5 Fluxo de leitura
@@ -235,7 +239,7 @@ Uso:
 - resposta com T/U e soil placeholder
 - LED faz 2 piscadas
 
-4. Enviar desinstalar ID=0xFF:
+4. Enviar desinstalar reg=0x12, ID=2:
 - volta estado desinstalada
 - LED aceso continuo
 

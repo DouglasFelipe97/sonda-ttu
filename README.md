@@ -15,7 +15,10 @@ A sonda pode operar em dois estados:
 - instalada (ID 1..4)
 
 Quando instalada, ela responde consultas de leitura enderecadas ao proprio ID.
-Quando desinstalada, ela responde ao fluxo de descoberta para permitir nova instalacao.
+Quando desinstalada, ela responde ao registrador de descoberta `0x11` sem mudar
+seu estado; a atribuicao pelo registrador `0x10` grava o novo ID. Mantenha apenas
+uma sonda virgem conectada durante a descoberta, pois sondas virgens simultaneas
+compartilham o mesmo ID de broadcast e podem responder juntas.
 
 ## Arquitetura
 
@@ -74,7 +77,7 @@ Esse modulo centraliza:
 
 ### Desinstalacao
 
-- Recebe comando com ID 0xFF no fluxo de instalacao.
+- Recebe o registrador `0x12` com o proprio ID (1..4).
 - Volta para estado desinstalado.
 - Persiste estado desinstalado em flash.
 
@@ -105,7 +108,9 @@ Formato base:
 - byte final: 0x55
 
 Registradores:
-- 0x10: instalacao/desinstalacao
+- 0x10: atribuicao de ID (somente sondas virgens aceitam)
+- 0x11: descoberta broadcast (somente sondas virgens respondem; nao altera estado)
+- 0x12: desinstalacao enderecada (ID 1..4)
 - 0x20: leitura
 
 ## Build

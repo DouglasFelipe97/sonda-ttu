@@ -11,13 +11,17 @@
  * Protocolo da sonda (compatibilidade com mestre do projeto smart-horta):
  * - Delimitador: 0x55
  * - Versao: 0x01
- * - Registrador 0x10: instalacao/desinstalacao
+ * - Registrador 0x10: atribuicao de ID
+ * - Registrador 0x11: descoberta de sondas virgens
+ * - Registrador 0x12: desinstalacao enderecada
  * - Registrador 0x20: leitura de telemetria
  */
 
 #define PROBE_FRAME_DELIMITER       0x55U
 #define PROBE_SW_VERSION            0x01U
 #define PROBE_INSTALL_REGISTER      0x10U
+#define PROBE_DISCOVERY_REGISTER    0x11U
+#define PROBE_UNINSTALL_REGISTER    0x12U
 #define PROBE_READ_REGISTER         0x20U
 #define PROBE_PROTO_FIXED_FIELDS    3U
 #define PROBE_FRAME_MAX_SIZE        32U
@@ -253,11 +257,11 @@ static void update_led_state(uint32_t now_ms)
     }
 }
 
-/* Resposta para broadcast de discovery/estado virgem. */
+/* Resposta ao broadcast de descoberta, apenas para sondas virgens. */
 static void send_discovery_response(uint32_t now_ms)
 {
     uint8_t tx[9];
-    size_t len = build_frame(PROBE_INSTALL_REGISTER,
+    size_t len = build_frame(PROBE_DISCOVERY_REGISTER,
                              PROBE_DISCOVERY_ID,
                              0x00U,
                              0,
@@ -321,33 +325,41 @@ static void send_read_response(uint32_t now_ms)
 }
 
 /*
- * Comando de instalacao (reg 0x10):
- * - id=0xFF: desinstalar/estado discovery
- * - id=1..4: instalar com ID fixo e persistir em flash
+ * Comandos:
+ * - reg 0x11, id 0xFF: descobrir somente sondas virgens
+ * - reg 0x10, id 1..4: instalar uma sonda virgem
+ * - reg 0x12, id 1..4: desinstalar somente a sonda enderecada
  */
-static void handle_install_command(uint8_t received_id, uint32_t now_ms)
+static void handle_command(uint8_t reg, uint8_t received_id, uint32_t now_ms)
 {
-    if (received_id == PROBE_DISCOVERY_ID)
+    if ((reg == PROBE_DISCOVERY_REGISTER) &&
+        (received_id == PROBE_DISCOVERY_ID) &&
+        (s_ctx.installed_id == PROBE_DISCOVERY_ID))
     {
-        if (s_ctx.installed_id == PROBE_DISCOVERY_ID)
-        {
-            send_discovery_response(now_ms);
-        }
-        else
-        {
-            s_ctx.installed_id = PROBE_DISCOVERY_ID;
-            probe_id_storage_write(PROBE_DISCOVERY_ID);
-            peripherals_led_pc13_set(true);
-            send_discovery_response(now_ms);
-        }
+        send_discovery_response(now_ms);
         return;
     }
 
-    if ((received_id >= PROBE_ID_MIN) && (received_id <= PROBE_ID_MAX))
+    if ((reg == PROBE_INSTALL_REGISTER) &&
+        (received_id >= PROBE_ID_MIN) &&
+        (received_id <= PROBE_ID_MAX) &&
+        (s_ctx.installed_id == PROBE_DISCOVERY_ID))
     {
         s_ctx.installed_id = received_id;
         probe_id_storage_write(received_id);
         send_install_ack(now_ms);
+        return;
+    }
+
+    if ((reg == PROBE_UNINSTALL_REGISTER) &&
+        (received_id >= PROBE_ID_MIN) &&
+        (received_id <= PROBE_ID_MAX) &&
+        (received_id == s_ctx.installed_id))
+    {
+        s_ctx.installed_id = PROBE_DISCOVERY_ID;
+        probe_id_storage_write(PROBE_DISCOVERY_ID);
+        peripherals_led_pc13_set(true);
+        s_ctx.led_blink_steps_remaining = 0U;
     }
 }
 
@@ -440,9 +452,11 @@ void probe_protocol_process(uint32_t now_ms)
                 continue;
             }
 
-            if (reg == PROBE_INSTALL_REGISTER)
+            if ((reg == PROBE_INSTALL_REGISTER) ||
+                (reg == PROBE_DISCOVERY_REGISTER) ||
+                (reg == PROBE_UNINSTALL_REGISTER))
             {
-                handle_install_command(id, now_ms);
+                handle_command(reg, id, now_ms);
             }
             else if ((reg == PROBE_READ_REGISTER) &&
                      (s_ctx.installed_id != PROBE_DISCOVERY_ID) &&
